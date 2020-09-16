@@ -22,14 +22,18 @@ provider "nsxt" {
   allow_unverified_ssl     = true
 }
 
+#Retrieve NSXT Transport Zone UUID
+#Remove nsx-tr-zone if you have multiple transport zones with same name
 data "nsxt_transport_zone" "nsx-tr-zone" {
   display_name   = var.transport_zone_name
 }
 
+#Retrieve vSphere Content Library UUID
 data "vsphere_content_library" "library" {
   name           = var.content_library_name
 }
 
+#Creates NSX-T User on Avi controller
 resource "avi_cloudconnectoruser" "nsx-t-user" {
   name           = "nsx-mgr-tf-user"
   tenant_ref     = var.avi_tenant
@@ -38,7 +42,7 @@ resource "avi_cloudconnectoruser" "nsx-t-user" {
     username     = var.nsxt_username
   }
 }
-
+#Creates vCenter User on Avi controller
 resource "avi_cloudconnectoruser" "vcenter-user" {
   name           = "vcenter-tf-user"
   tenant_ref     = var.avi_tenant
@@ -48,6 +52,7 @@ resource "avi_cloudconnectoruser" "vcenter-user" {
   }
 }
 
+#Creates NSX-T Cloud on Avi controller
 resource "avi_cloud" "nsx-t-cloud" {
   depends_on     = [avi_cloudconnectoruser.nsx-t-user]
   name           = var.nsxt_cloudname
@@ -57,7 +62,6 @@ resource "avi_cloud" "nsx-t-cloud" {
   nsxt_configuration {
     nsxt_url     = var.nsxt_url
     transport_zone = data.nsxt_transport_zone.nsx-tr-zone.id
-#    transport_zone = "1b3a2f36-bfd1-443e-a0f6-4de01abc963e"
     management_segment {
       tier1_lr_id = var.mgmt_lr_id
       segment_id  = var.mgmt_segment_id
@@ -76,6 +80,7 @@ resource "avi_cloud" "nsx-t-cloud" {
   }
 }
 
+#Creates vCenterserver on Avi controller and attaches vcenterserver to cloud
 resource "avi_vcenterserver" "vc-01" {
   depends_on      = [ avi_cloudconnectoruser.vcenter-user,
                       avi_cloud.nsx-t-cloud ]
