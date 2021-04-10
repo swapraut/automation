@@ -1,0 +1,78 @@
+---
+- hosts: localhost
+  connection: local
+  #  vars_files:
+  #  - "vars/creds.yml"
+  vars:
+    state: absent
+    enabled: False
+    controller: 10.206.114.182
+    username: admin
+    password: pass1234
+    api_version: 18.2.8
+#    controller: "{{ avi_credentials.avi_controller }}"
+#    username: "{{ avi_credentials.avi_username }}"
+#    password: "{{ avi_credentials.avi_password }}"
+#    api_version: "{{ avi_credentials.api_version }}"
+    cloud_name: "Foo"
+    tenant: admin
+    cloud_user: root
+    cloud_user_key_path: private_key.pem
+
+    se_mgmt_ip: '10.206.115.220'
+
+  roles:
+    - role: avinetworks.avisdk
+
+  tasks:
+
+    - name: Create Linux Server Username - {{ cloud_user }}
+      avi_cloudconnectoruser:
+        controller: '{{ controller }}'
+        username: '{{ username }}'
+        password: '{{ password }}'
+        api_version: "{{ api_version }}"
+        tenant: "{{ tenant }}"
+        tenant_ref: '/api/tenant?name={{ tenant }}'
+         #state: absent
+        name: '{{ cloud_user }}'
+        private_key: "{{ lookup('file', '{{ cloud_user_key_path }}')}}"
+
+    - name: Create Linux Server Cloud - {{ cloud_name }}
+      avi_cloud:
+        controller: '{{ controller }}'
+        username: '{{ username }}'
+        password: '{{ password }}'
+        api_version: "{{ api_version }}"
+        tenant: "{{ tenant }}"
+        tenant_ref: '/api/tenant?name={{ tenant }}'
+         #state: absent
+        name: '{{ cloud_name }}'
+        vtype: CLOUD_LINUXSERVER
+        linuxserver_configuration:
+          ssh_user_ref: '/api/cloudconnectoruser?name={{ cloud_user }}'
+          hosts:
+            - host_ip:
+                type: V4
+                addr: '{{ se_mgmt_ip }}'
+              host_attr:
+                - attr_key: SE_INBAND_MGMT
+                  attr_val: 'True'
+                - attr_key: DPDK
+                  attr_val: 'Yes'
+                - attr_key: CPU
+                  attr_val: All
+                - attr_key: MEMORY
+                  attr_val: All
+
+    - name: Wait for SE to be up - {{ se_mgmt_ip }}
+      uri:
+        validate_certs: false
+        url: 'https://{{ controller }}/api/serviceengine?name={{ se_mgmt_ip}}'
+        method: GET
+        status_code: 200
+      register: result
+      until: result.status
+        username: '{{ username }}'
+        password: '{{ password }}'
+        api_version: "{{ api_version }}
