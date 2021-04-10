@@ -1,0 +1,175 @@
+# This is playbook for an application.
+# This can invoke any of the avi roles like application, profile or cloud
+#
+---
+- hosts: localhost
+  connection: local
+  #  vars_files:
+  #  - "vars/creds.yml"
+  vars:
+    state: present
+    enabled: False
+    controller: 10.206.115.183
+    username: admin
+    password: pass1234
+    api_version: 18.2.7
+#    controller: "{{ avi_credentials.avi_controller }}"
+#    username: "{{ avi_credentials.avi_username }}"
+#    password: "{{ avi_credentials.avi_password }}"
+#    api_version: "{{ avi_credentials.api_version }}"
+    tenant: admin
+    se_group: tenant-1
+    ssl_cert_name: qa.res.vmware.com
+    app_persistence_profile_name: test-Client-IP
+    hm_name: test-HTTPS-HM
+    pool_name: T1SF-108.90.57.168-443
+    app_name: T1SF-108.90.57.168
+    vs_name: T1SLB-SF-108.90.57.168:443
+    port_num: 80
+    port_num_2: 443
+    pool_mem1: 192.168.109.122
+    pool_mem2: 192.168.109.123
+    vip: 10.206.112.158
+    ip_grp: vmware-internal
+
+  roles:
+    - role: avinetworks.avisdk
+
+  tasks:
+
+# Migrate the task of creating SE Group to Infrastructure playbook
+    - name: Create ServiceEngineGroup - {{ se_group }}
+      avi_serviceenginegroup:
+        controller: '{{ controller }}'
+        username: '{{ username }}'
+        password: '{{ password }}'
+        api_version: "{{ api_version }}"
+        tenant: "{{ tenant }}"
+        tenant_ref: '/api/tenant?name={{ tenant }}'
+        state: '{{ state }}'
+        ha_mode: HA_MODE_SHARED
+        name: '{{ se_group }}'
+#    - debug: "msg=Avi Controller {{ controller }}"
+#
+#    - debug: msg="Public Cert is {{ lookup('file', 'certificate.crt')}}"
+
+    - name: Create SSL Key and Certificate - {{ ssl_cert_name }}
+      avi_sslkeyandcertificate:
+        controller: "{{ controller }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        api_version: "{{ api_version }}"
+        tenant: "{{ tenant }}"
+        tenant_ref: '/api/tenant?name={{ tenant }}'
+        #state: absent
+        key: "{{ lookup('file', 'private_key.pem') }}"
+        certificate:
+          self_signed: false
+          certificate: "{{ lookup('file', 'certificate.crt')}}"
+        type: SSL_CERTIFICATE_TYPE_VIRTUALSERVICE
+        name: "{{ ssl_cert_name }}"
+
+
+    - name: Create Application Persistence Profile - {{ app_persistence_profile_name }}
+      avi_applicationpersistenceprofile:
+        controller: "{{ controller }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        api_version: "{{ api_version }}"
+        tenant: "{{ tenant }}"
+        tenant_ref: '/api/tenant?name={{ tenant }}'
+        #state: absent
+        server_hm_down_recovery: HM_DOWN_PICK_NEW_SERVER
+        persistence_type: PERSISTENCE_TYPE_CLIENT_IP_ADDRESS
+        name: "{{ app_persistence_profile_name }}"
+        description: '20 min persistence timeout'
+        ip_persistence_profile:
+          timeout: 20
+
+    - name: Create Health Monitor - {{ hm_name }}
+      avi_healthmonitor:
+        controller: "{{ controller }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        api_version: "{{ api_version }}"
+        tenant: "{{ tenant }}"
+        tenant_ref: '/api/tenant?name={{ tenant }}'
+        #state: absent
+        https_monitor:
+          ssl_attributes:
+            ssl_profile_ref: '/api/sslprofile?name=System-Standard'
+          http_request: HEAD / HTTP/1.1
+          http_response_code:
+            - HTTP_2XX
+            - HTTP_3XX
+        receive_timeout: 4
+        failed_checks: 2
+        send_interval: 10
+        successful_checks: 2
+        type: HEALTH_MONITOR_HTTPS
+        name: "{{ hm_name }}"
+
+    - name: Create Pool - {{ pool_name }}
+      avi_pool:
+        controller: '{{ controller }}'
+        username: '{{ username }}'
+        password: '{{ password }}'
+        api_version: "{{ api_version }}"
+        tenant: "{{ tenant }}"
+        tenant_ref: '/api/tenant?name={{ tenant }}'
+        #state: absent
+        name: "{{ pool_name }}"
+        default_server_port: "{{ port_num_2 }}"
+        lb_algorithm: 'LB_ALGORITHM_ROUND_ROBIN'
+        application_persistence_profile_ref: '/api/applicationpersistenceprofile?name=System-Persistence-App-Cookie'
+        health_monitor_refs:
+           - '/api/healthmonitor?name={{ hm_name }}'
+        servers:
+           - ip:
+               addr: "{{ pool_mem1 }}"
+               type: 'V4'
+           - ip:
+               addr: "{{ pool_mem2 }}"
+               type: 'V4'
+        ssl_profile_ref: '/api/sslprofile?name=System-Standard'
+      register: mypool
+
+    - name: Create VsVip object - {{ app_name }}
+      avi_vsvip:
+        controller: "{{ controller }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        api_version: "{{ api_version }}"
+        tenant: "{{ tenant }}"
+        tenant_ref: '/api/tenant?name={{ tenant }}'
+        name: "{{ app_name }}"
+        vip:
+          - ip_address:
+              addr: "{{ vip }}"
+              type: 'V4'
+            vip_id: "1"
+
+
+    - name: Create VS - {{ vs_name }}
+      avi_virtualservice:
+        controller: "{{ controller }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        api_version: "{{ api_version }}"
+        tenant: "{{ tenant }}"
+        tenant_ref: '/api/tenant?name={{ tenant }}'
+        #state: "{{ state }}"
+        application_profile_ref: '/api/applicationprofile?name=System-Secure-HTTP'
+        se_group_ref: '/api/serviceenginegroup?name={{ se_group }}'
+        enabled: "{{ enabled }}"
+        name: "{{ vs_name }}"
+        services:
+           - port: "{{ port_num }}"
+           - port: "{{ port_num_2 }}"
+             enable_ssl: true
+        pool_ref: '/api/pool?name={{ pool_name }}'
+        vsvip_ref: '/api/vsvip?name={{ app_name }}'
+        ssl_profile_ref: '/api/sslprofile?name=System-Standard'
+        ssl_key_and_certificate_refs:
+          - '/api/sslkeyandcertificate?name={{ ssl_cert_name }}'
+      register: testvs
