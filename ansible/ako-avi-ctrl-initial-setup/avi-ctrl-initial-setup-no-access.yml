@@ -1,0 +1,120 @@
+# .
+# This can invoke any of the avi roles like application, profile or cloud
+#
+---
+- hosts: localhost
+  connection: local
+  #  vars_files:
+  #  - "vars/creds.yml"
+  vars:
+    state: present
+    enabled: False
+    controller: 10.206.115.183
+    username: admin
+    password: pass1234
+    api_version: 20.1.4
+#    controller: "{{ avi_credentials.avi_controller }}"
+#    username: "{{ avi_credentials.avi_username }}"
+#    password: "{{ avi_credentials.avi_password }}"
+#    api_version: "{{ avi_credentials.api_version }}"
+    tenant: admin
+    cloud_name: TEST-AKO
+    se_group: TEST-AKO-Cluster-1
+    vip_network_name: TEST-VIP
+    vip_subnet: 192.168.10.0
+    vip_netmask: 24
+    vip_start_range: 192.168.10.200
+    vip_end_range: 192.168.10.210
+    ipam_profile_name: TEST-AKO-Cluster-1-VIP-IPAM
+
+  roles:
+    - role: avinetworks.avisdk
+
+  tasks:
+
+    - name: Create Cloud - {{ cloud_name }}
+      avi_cloud:
+        controller: '{{ controller }}'
+        username: '{{ username }}'
+        password: '{{ password }}'
+        api_version: "{{ api_version }}"
+        tenant: "{{ tenant }}"
+        tenant_ref: '/api/tenant?name={{ tenant }}'
+        state: '{{ state }}'
+        name: '{{ cloud_name }}'
+        vtype: CLOUD_NONE
+
+#
+    - name: Create VIP Subnet - {{ vip_network_name }}
+      avi_network:
+        controller: '{{ controller }}'
+        username: '{{ username }}'
+        password: '{{ password }}'
+        api_version: "{{ api_version }}"
+        tenant: "{{ tenant }}"
+        tenant_ref: '/api/tenant?name={{ tenant }}'
+        cloud_ref: '/api/cloud?name={{ cloud_name }}'
+        state: '{{ state }}'
+        name: '{{ vip_network_name }}'
+        configured_subnets:
+            - prefix:
+                ip_addr:
+                  addr: '{{ vip_subnet }}'
+                  type: V4
+                mask: '{{ vip_netmask }}'
+              static_ranges:
+                - begin:
+                    addr: '{{ vip_start_range }}'
+                    type: V4
+                  end:
+                    addr: '{{ vip_end_range }}'
+                    type: V4
+
+    - name: Create Avi VIP IPAM Profile - {{ ipam_profile_name }}
+      avi_ipamdnsproviderprofile:
+        controller: '{{ controller }}'
+        username: '{{ username }}'
+        password: '{{ password }}'
+        api_version: "{{ api_version }}"
+        tenant: "{{ tenant }}"
+        tenant_ref: '/api/tenant?name={{ tenant }}'
+        #        cloud_ref: '/api/cloud?name={{ cloud_name }}'
+        state: '{{ state }}'
+        type: IPAMDNS_TYPE_INTERNAL
+        name: '{{ ipam_profile_name }}'
+        allocate_ip_in_vrf: False
+        internal_profile:
+            ttl: 30
+            usable_network_refs:
+               - '/api/network?name={{ vip_network_name }}'
+
+    - name: Update Cloud with IPAM - {{ cloud_name }}
+      avi_cloud:
+        controller: '{{ controller }}'
+        username: '{{ username }}'
+        password: '{{ password }}'
+        api_version: "{{ api_version }}"
+        tenant: "{{ tenant }}"
+        tenant_ref: '/api/tenant?name={{ tenant }}'
+        cloud_ref: '/api/cloud?name={{ cloud_name }}'
+        state: '{{ state }}'
+        ipam_provider_ref: '/api/ipamdnsproviderprofile?name={{ ipam_profile_name }}'
+
+# Migrate the task of creating SE Group to Infrastructure playbook
+    - name: Create ServiceEngineGroup - {{ se_group }}
+      avi_serviceenginegroup:
+        controller: '{{ controller }}'
+        username: '{{ username }}'
+        password: '{{ password }}'
+        api_version: "{{ api_version }}"
+        tenant: "{{ tenant }}"
+        tenant_ref: '/api/tenant?name={{ tenant }}'
+        cloud_ref: '/api/cloud?name={{ cloud_name }}'
+        state: '{{ state }}'
+        ha_mode: HA_MODE_SHARED_PAIR
+        name: '{{ se_group }}'
+        max_scaleout_per_vs: 4
+        min_scaleout_per_vs: 2
+#    - debug: "msg=Avi Controller {{ controller }}"
+#
+#    - debug: msg="Public Cert is {{ lookup('file', 'certificate.crt')}}"
